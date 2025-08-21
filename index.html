@@ -1,3 +1,4 @@
+<!-- index.html -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -11,9 +12,7 @@
     h1, h2, h3 { margin: 0 0 10px 0; }
     .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
     .row > * { margin: 2px 0; }
-    input[type="text"], input[type="number"], textarea, select {
-      padding: 8px; width: 100%; max-width: 520px; box-sizing: border-box;
-    }
+    input[type="text"], input[type="number"], textarea, select { padding: 8px; width: 100%; max-width: 520px; box-sizing: border-box; }
     textarea { min-height: 80px; }
     button { padding: 8px 12px; cursor: pointer; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -30,32 +29,27 @@
 <body>
   <header>
     <h1>Demo Hoteles RAG</h1>
-    <p class="muted">
-      Backend FastAPI con /health, /reload y /query. Este front construye y envía el payload JSON esperado por /query.
-    </p>
-
     <div class="card">
       <div class="row">
-        <label for="apiBase"><strong>API Base</strong></label>
+        <label for="apiBase"><strong>API Base (opcional)</strong></label>
       </div>
       <div class="row">
-        <input id="apiBase" type="text" placeholder="http://TU_IP:8000" />
+        <input id="apiBase" type="text" placeholder="(vacío = usar /api del mismo host) o http://31.97.91.221:8000" />
         <button id="btnUse">Usar</button>
         <button id="btnHealth">Probar /health</button>
         <span id="healthStatus" class="muted"></span>
       </div>
-      <p class="muted">Consejo: si despliegas con docker-compose.yml, la API expone el puerto 8000 y el front (opcional) el 8080.</p>
+      <p class="muted">Por defecto este front llama a <code>/api/health</code> y <code>/api/query</code> (proxy Nginx). Si indicas una API Base, usará esa en su lugar.</p>
     </div>
   </header>
 
   <section class="grid">
     <div class="card">
       <h2>Consultas de demostración</h2>
-      <p>Estas tres consultas corresponden a los casos previstos en tu backend:</p>
       <ul>
-        <li><span class="pill">Compras</span> Coste total 2023 por hotel y proveedor</li>
-        <li><span class="pill">Portfolio</span> Total de habitaciones por país</li>
-        <li><span class="pill">Ocupación 2024</span> Ranking YTD 2024 por propiedad en una ciudad</li>
+        <li><span class="pill">Portfolio</span> Habitaciones por país</li>
+        <li><span class="pill">Ocupación 2024</span> YTD por propiedad en ciudad</li>
+        <li><span class="pill">Compras 2023</span> Importe total por hotel y proveedor</li>
       </ul>
       <div class="row">
         <button id="btnDemoRooms">Demo: Habitaciones por país</button>
@@ -63,13 +57,12 @@
         <input id="cityDemo" type="text" placeholder="Ciudad (ej.: Madrid)" style="max-width:220px" />
         <button id="btnDemoCompras">Demo: Compras 2023 por hotel y proveedor</button>
       </div>
-      <p class="muted">Claves típicas: country + rooms_total; property + YTD; property + proveedor + importe_total.</p>
     </div>
 
     <div class="card">
       <h2>Consulta personalizada</h2>
       <div class="row">
-        <label for="txtQuery"><strong>query</strong> (texto libre, obligatorio)</label>
+        <label for="txtQuery"><strong>query</strong></label>
       </div>
       <textarea id="txtQuery" placeholder="Describe tu consulta (p. ej., 'compras 2023 por hotel y proveedor')"></textarea>
 
@@ -82,11 +75,11 @@
       <div class="row">
         <input id="fProperty" type="text" placeholder="property" style="max-width:240px" />
         <input id="fType" type="text" placeholder="type" style="max-width:160px" />
-        <input id="fDomain" type="text" placeholder='domain (por defecto "all")' style="max-width:180px" />
+        <input id="fDomain" type="text" placeholder='domain ("all" por defecto)' style="max-width:180px" />
       </div>
       <div class="row">
-        <input id="fYear" type="number" placeholder="year (e.g., 2023/2024)" style="max-width:180px" />
-        <input id="fMonth" type="text" placeholder="month (ej.: Ene, Feb...)" style="max-width:180px" />
+        <input id="fYear" type="number" placeholder="year (2023/2024)" style="max-width:180px" />
+        <input id="fMonth" type="text" placeholder="month (Ene/Feb/...)" style="max-width:180px" />
       </div>
 
       <h3>Agregación (opcional)</h3>
@@ -96,15 +89,8 @@
           <option value="rooms_total">rooms_total</option>
           <option value="importe_total">importe_total</option>
         </select>
-        <input id="aggGroupBy" type="text" placeholder='group_by (coma) p.ej.: country o property,proveedor' style="max-width:320px" />
+        <input id="aggGroupBy" type="text" placeholder='group_by (coma): p.ej. country o property,proveedor' style="max-width:320px" />
         <input id="aggWeighting" type="text" placeholder="weighting (opcional)" style="max-width:220px" />
-      </div>
-
-      <h3>Opciones</h3>
-      <div class="row">
-        <input id="optTopK" type="number" placeholder="top_k (def. 8)" style="max-width:140px" />
-        <label><input id="optRerank" type="checkbox" checked /> rerank</label>
-        <label><input id="optSources" type="checkbox" checked /> return_sources</label>
       </div>
 
       <div class="row">
@@ -134,47 +120,27 @@
     <div id="aggBox" class="muted">Sin datos.</div>
   </section>
 
-  <section class="card">
-    <h2>Notas</h2>
-    <ul>
-      <li>Tu backend expone /health (GET), /reload (POST) y /query (POST).</li>
-      <li>Si actualizas los Sheets, puedes llamar a /reload para refrescar datos sin reconstruir contenedor.</li>
-      <li>En Compose, la API va por 8000 y el front (opcional) por 8080.</li>
-    </ul>
-  </section>
-
   <script>
     const $ = (id) => document.getElementById(id);
     const LS_KEY = "apiBaseUrl";
 
-    function getApiBase() {
-      return ($("apiBase").value || "").trim();
+    function getApiBase() { return ($("apiBase").value || "").trim(); }
+    function apiUrl(path) {
+      const base = getApiBase().replace(/\/+$/, "");
+      if (base) return base + path;
+      return path.startsWith("/api") ? path : "/api" + path;
     }
-
     function setStatus(msg, ok=true) {
       const el = $("healthStatus");
       el.textContent = msg || "";
       el.className = ok ? "ok" : "err";
     }
-
-    function renderJSON(id, obj) {
-      $(id).textContent = JSON.stringify(obj ?? {}, null, 2);
-    }
-
-    function renderAnswer(text) {
-      $("answerBox").textContent = text || "Sin respuesta.";
-      $("answerBox").className = text ? "" : "muted";
-    }
-
+    function renderJSON(id, obj) { $(id).textContent = JSON.stringify(obj ?? {}, null, 2); }
+    function renderAnswer(text) { $("answerBox").textContent = text || "Sin respuesta."; $("answerBox").className = text ? "" : "muted"; }
     function renderSources(list) {
       const box = $("sourcesBox");
-      if (!Array.isArray(list) || list.length === 0) {
-        box.textContent = "Sin fuentes.";
-        box.className = "muted";
-        return;
-      }
-      box.className = "";
-      box.innerHTML = "";
+      if (!Array.isArray(list) || list.length === 0) { box.textContent = "Sin fuentes."; box.className = "muted"; return; }
+      box.className = ""; box.innerHTML = "";
       const ul = document.createElement("ul");
       list.forEach(s => {
         const li = document.createElement("li");
@@ -184,138 +150,66 @@
         const a = document.createElement("a");
         a.href = url; a.textContent = title; a.target = "_blank"; a.rel = "noopener";
         li.appendChild(a);
-        if (note) {
-          const span = document.createElement("span");
-          span.textContent = note;
-          li.appendChild(span);
-        }
+        if (note) { const span = document.createElement("span"); span.textContent = note; li.appendChild(span); }
         ul.appendChild(li);
       });
       box.appendChild(ul);
     }
-
     function renderAggregates(rows) {
       const box = $("aggBox");
-      if (!Array.isArray(rows) || rows.length === 0) {
-        box.textContent = "Sin datos.";
-        box.className = "muted";
-        return;
-      }
-      box.className = "";
-      box.innerHTML = "";
-
+      if (!Array.isArray(rows) || rows.length === 0) { box.textContent = "Sin datos."; box.className = "muted"; return; }
+      box.className = ""; box.innerHTML = "";
       const cols = Object.keys(rows[0] || {});
-      if (cols.length === 0) {
-        box.textContent = "Sin datos.";
-        box.className = "muted";
-        return;
-      }
-
+      if (cols.length === 0) { box.textContent = "Sin datos."; box.className = "muted"; return; }
       const table = document.createElement("table");
-      const thead = document.createElement("thead");
-      const trh = document.createElement("tr");
-      cols.forEach(c => {
-        const th = document.createElement("th");
-        th.textContent = c;
-        trh.appendChild(th);
-      });
-      thead.appendChild(trh);
-      table.appendChild(thead);
-
+      const thead = document.createElement("thead"); const trh = document.createElement("tr");
+      cols.forEach(c => { const th = document.createElement("th"); th.textContent = c; trh.appendChild(th); });
+      thead.appendChild(trh); table.appendChild(thead);
       const tbody = document.createElement("tbody");
       rows.forEach(r => {
         const tr = document.createElement("tr");
-        cols.forEach(c => {
-          const td = document.createElement("td");
-          const v = r[c];
-          td.textContent = v == null ? "" : String(v);
-          tr.appendChild(td);
-        });
+        cols.forEach(c => { const td = document.createElement("td"); const v = r[c]; td.textContent = v == null ? "" : String(v); tr.appendChild(td); });
         tbody.appendChild(tr);
       });
-      table.appendChild(tbody);
-
-      box.appendChild(table);
+      table.appendChild(tbody); box.appendChild(table);
     }
-
     function buildFilters() {
       const f = {};
-      const map = {
-        country: "fCountry",
-        city: "fCity",
-        brand: "fBrand",
-        property: "fProperty",
-        type: "fType",
-        domain: "fDomain",
-        year: "fYear",
-        month: "fMonth",
-      };
-      Object.entries(map).forEach(([k, id]) => {
-        const el = $(id);
-        if (!el) return;
-        const val = (el.value || "").trim();
-        if (val !== "") {
-          f[k] = (k === "year") ? Number(val) : val;
-        }
-      });
+      const map = { country:"fCountry", city:"fCity", brand:"fBrand", property:"fProperty", type:"fType", domain:"fDomain", year:"fYear", month:"fMonth" };
+      Object.entries(map).forEach(([k,id]) => { const el = $(id); if (!el) return;
+        const val = (el.value || "").trim(); if (val !== "") f[k] = (k === "year") ? Number(val) : val; });
       return Object.keys(f).length ? f : null;
     }
-
     function buildAggregate() {
       const metric = $("aggMetric").value.trim();
       const groupByStr = $("aggGroupBy").value.trim();
       const weighting = $("aggWeighting").value.trim();
-
       const agg = {};
       if (metric) agg.metric = metric;
-      if (groupByStr) {
-        agg.group_by = groupByStr.split(",").map(s => s.trim()).filter(Boolean);
-      }
+      if (groupByStr) agg.group_by = groupByStr.split(",").map(s => s.trim()).filter(Boolean);
       if (weighting) agg.weighting = weighting;
-
       return Object.keys(agg).length ? agg : null;
     }
-
     function buildPayloadFromForm() {
       const query = $("txtQuery").value.trim();
       const filters = buildFilters();
       const aggregate = buildAggregate();
-      const top_k = $("optTopK").value ? Number($("optTopK").value) : undefined;
-      const rerank = $("optRerank").checked;
-      const return_sources = $("optSources").checked;
-
+      const top_k = undefined;
+      const rerank = true;
+      const return_sources = true;
       const payload = { query };
       if (filters) payload.filters = filters;
       if (aggregate) payload.aggregate = aggregate;
       if (typeof top_k === "number" && !Number.isNaN(top_k)) payload.top_k = top_k;
-      payload.rerank = rerank;
-      payload.return_sources = return_sources;
+      payload.rerank = rerank; payload.return_sources = return_sources;
       return payload;
     }
-
     async function runQuery(payload) {
       renderJSON("payloadView", payload);
-      renderAnswer("Consultando...");
-      renderAggregates([]);
-      renderSources([]);
-
-      const base = getApiBase();
-      if (!base) {
-        setStatus("Configura la API Base primero.", false);
-        renderAnswer("Error: API Base no configurada.");
-        return;
-      }
-
+      renderAnswer("Consultando..."); renderAggregates([]); renderSources([]);
       try {
-        const res = await fetch(base.replace(/\/+$/, "") + "/query", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) {
-          const txt = await res.text().catch(()=>"");
-          throw new Error("HTTP " + res.status + " " + txt);
-        }
+        const res = await fetch(apiUrl("/query"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+        if (!res.ok) { const t = await res.text().catch(()=> ""); throw new Error("HTTP " + res.status + " " + t); }
         const data = await res.json();
         renderAnswer(data.answer || "Sin 'answer'.");
         renderAggregates(Array.isArray(data.aggregates) ? data.aggregates : []);
@@ -324,122 +218,57 @@
       } catch (e) {
         setStatus("Error /query", false);
         renderAnswer("Error al consultar /query.");
-        $("aggBox").textContent = "Sin datos.";
-        $("aggBox").className = "muted";
-        $("sourcesBox").textContent = "Sin fuentes.";
-        $("sourcesBox").className = "muted";
+        $("aggBox").textContent = "Sin datos."; $("aggBox").className = "muted";
+        $("sourcesBox").textContent = "Sin fuentes."; $("sourcesBox").className = "muted";
         console.error(e);
       }
     }
-
     async function pingHealth() {
-      const base = getApiBase();
-      if (!base) {
-        setStatus("Configura la API Base primero.", false);
-        return;
-      }
       setStatus("Comprobando…", true);
       try {
-        const res = await fetch(base.replace(/\/+$/, "") + "/health");
+        const res = await fetch(apiUrl("/health"));
         if (!res.ok) throw new Error("HTTP " + res.status);
         const j = await res.json();
-        if (j && j.status === "ok") {
-          setStatus("OK /health", true);
-        } else {
-          setStatus("Respuesta inesperada de /health", false);
-        }
-      } catch (e) {
-        console.error(e);
-        setStatus("Error /health", false);
-      }
+        if (j && j.status === "ok") setStatus("OK /health", true);
+        else setStatus("Respuesta inesperada de /health", false);
+      } catch (e) { console.error(e); setStatus("Error /health", false); }
     }
-
     function demoRoomsByCountry() {
-      const payload = {
-        query: "Total de habitaciones por país",
-        aggregate: { metric: "rooms_total", group_by: ["country"] }
-      };
-      $("txtQuery").value = payload.query;
-      $("aggMetric").value = "rooms_total";
-      $("aggGroupBy").value = "country";
-      renderJSON("payloadView", payload);
-      runQuery(payload);
+      const payload = { query:"Total de habitaciones por país", aggregate:{ metric:"rooms_total", group_by:["country"] } };
+      $("txtQuery").value = payload.query; $("aggMetric").value = "rooms_total"; $("aggGroupBy").value = "country";
+      renderJSON("payloadView", payload); runQuery(payload);
     }
-
     function demoOcupYTDByCity() {
       const city = ($("cityDemo").value || "").trim() || "Madrid";
-      const payload = {
-        query: `Ocupación YTD 2024 por propiedad en ${city}`,
-        filters: { city: city, year: 2024 },
-        aggregate: { group_by: ["property"] }
-      };
-      $("txtQuery").value = payload.query;
-      $("fCity").value = city;
-      $("fYear").value = "2024";
-      $("aggMetric").value = "";
-      $("aggGroupBy").value = "property";
-      renderJSON("payloadView", payload);
-      runQuery(payload);
+      const payload = { query:`Ocupación YTD 2024 por propiedad en ${city}`, filters:{ city: city, year: 2024 }, aggregate:{ group_by:["property"] } };
+      $("txtQuery").value = payload.query; $("fCity").value = city; $("fYear").value = "2024"; $("aggGroupBy").value = "property";
+      renderJSON("payloadView", payload); runQuery(payload);
     }
-
     function demoCompras2023() {
-      const payload = {
-        query: "Coste total de compras 2023 por hotel y proveedor",
-        filters: { year: 2023 },
-        aggregate: { metric: "importe_total", group_by: ["property", "proveedor"] }
-      };
-      $("txtQuery").value = payload.query;
-      $("fYear").value = "2023";
-      $("aggMetric").value = "importe_total";
-      $("aggGroupBy").value = "property,proveedor";
-      renderJSON("payloadView", payload);
-      runQuery(payload);
+      const payload = { query:"Coste total de compras 2023 por hotel y proveedor", filters:{ year: 2023 }, aggregate:{ metric:"importe_total", group_by:["property","proveedor"] } };
+      $("txtQuery").value = payload.query; $("fYear").value = "2023"; $("aggMetric").value = "importe_total"; $("aggGroupBy").value = "property,proveedor";
+      renderJSON("payloadView", payload); runQuery(payload);
     }
-
     function clearAll() {
       $("txtQuery").value = "";
       ["fCountry","fCity","fBrand","fProperty","fType","fDomain","fYear","fMonth"].forEach(id => { const el = $(id); if (el) el.value = ""; });
-      $("aggMetric").value = "";
-      $("aggGroupBy").value = "";
-      $("aggWeighting").value = "";
-      $("optTopK").value = "";
-      $("optRerank").checked = true;
-      $("optSources").checked = true;
-      renderJSON("payloadView", {});
-      renderAnswer("Sin consulta.");
-      $("aggBox").textContent = "Sin datos.";
-      $("aggBox").className = "muted";
-      $("sourcesBox").textContent = "Sin fuentes.";
-      $("sourcesBox").className = "muted";
+      $("aggMetric").value = ""; $("aggGroupBy").value = ""; $("aggWeighting").value = "";
+      renderJSON("payloadView", {}); renderAnswer("Sin consulta.");
+      $("aggBox").textContent = "Sin datos."; $("aggBox").className = "muted";
+      $("sourcesBox").textContent = "Sin fuentes."; $("sourcesBox").className = "muted";
       setStatus("", true);
     }
-
     window.addEventListener("DOMContentLoaded", () => {
       const saved = localStorage.getItem(LS_KEY) || "";
-      $("apiBase").value = saved || "http://TU_IP:8000";
-
-      $("btnUse").addEventListener("click", () => {
-        const base = getApiBase();
-        if (!base) {
-          setStatus("Introduce la API Base.", false);
-          return;
-        }
-        localStorage.setItem(LS_KEY, base);
-        setStatus("API Base guardada.", true);
-      });
-
+      $("apiBase").value = saved || "";
+      $("btnUse").addEventListener("click", () => { localStorage.setItem(LS_KEY, getApiBase()); setStatus("API Base guardada.", true); });
       $("btnHealth").addEventListener("click", pingHealth);
       $("btnSend").addEventListener("click", () => {
         const q = $("txtQuery").value.trim();
-        if (!q) {
-          setStatus("El campo 'query' es obligatorio.", false);
-          return;
-        }
-        const payload = buildPayloadFromForm();
-        runQuery(payload);
+        if (!q) { setStatus("El campo 'query' es obligatorio.", false); return; }
+        const payload = buildPayloadFromForm(); runQuery(payload);
       });
       $("btnClear").addEventListener("click", clearAll);
-
       $("btnDemoRooms").addEventListener("click", demoRoomsByCountry);
       $("btnDemoOcup").addEventListener("click", demoOcupYTDByCity);
       $("btnDemoCompras").addEventListener("click", demoCompras2023);
