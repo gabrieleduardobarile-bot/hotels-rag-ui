@@ -144,60 +144,160 @@ def interpret_nl_heuristic(q: str) -> dict:
 
     return {"query": q}
 
-# ============ NL → JSON (LLM) ============
+# ============ NL → JSON (LLM con System Message + few-shots) ============
+
+def normalize_llm_json(q: str, data: dict) -> dict:
+    """
+    Sanitiza la salida del LLM para ajustarse al contrato de la API:
+      - Solo claves permitidas
+      - Métricas válidas: rooms_total | importe_total | unidades_total | ocupacion_media
+      - group_by si es lista de strings
+      - filters con campos conocidos y tipos razonables
+    """
+    allowed_metrics = {"rooms_total", "importe_total", "unidades_total", "ocupacion_media"}
+    allowed_filters = {"year","city","country","property","provider","product_keyword","month","brand","type","domain"}
+    out = {"query": q}
+
+    # aggregate
+    agg = data.get("aggregate") if isinstance(data, dict) else None
+    if isinstance(agg, dict):
+        metric = agg.get("metric")
+        group_by = agg.get("group_by")
+        norm_agg = {}
+        if isinstance(metric, str) and metric in allowed_metrics:
+            norm_agg["metric"] = metric
+        if isinstance(group_by, list) and all(isinstance(x, str) for x in group_by):
+            uniq = []
+            for g in group_by:
+                g = g.strip()
+                if g and g not in uniq:
+                    uniq.append(g)
+            if uniq:
+                norm_agg["group_by"] = uniq
+        if norm_agg:
+            out["aggregate"] = norm_agg
+
+    # filters
+    f = data.get("filters") if isinstance(data, dict) else None
+    if isinstance(f, dict):
+        norm_f = {}
+        for k, v in f.items():
+            if k in allowed_filters:
+                if k == "year":
+                    try:
+                        norm_f["year"] = int(v)
+                    except:
+                        pass
+                else:
+                    if isinstance(v, (str, int, float)):
+                        norm_f[k] = str(v)
+        if norm_f:
+            out["filters"] = norm_f
+
+    return out
 
 def call_llm_nl_to_json(q: str) -> Optional[dict]:
     """
-    Pide al LLM que devuelva JSON con:
-      aggregate.metric ∈ {"rooms_total","importe_total","unidades_total","ocupacion_media"}
-      aggregate.group_by opcional
-      filters: year, city, country, property, provider, product_keyword
-    Reglas: usa ocupacion_media si piden 'promedio' o 'media' de ocupación, asume 2024 si no indican año.
+    Pide al LLM un JSON con:
+      {
+        "aggregate": {"metric": "...", "group_by": [...]},   # metric ∈ {rooms_total, importe_total, unidades_total, ocupacion_media}
+        "filters": {"year": 2025, "city": "...", "country":"...", "property":"...", "provider":"...", "product_keyword":"..."}
+      }
     """
     if not ENABLE_LLM or not OPENAI_API_KEY or not q.strip():
         return None
 
-    prompt = f"""
-Eres un parser que convierte la pregunta del usuario en JSON para una API.
-- metric: "rooms_total" | "importe_total" | "unidades_total" | "ocupacion_media"
-- group_by: lista de campos (p.ej., ["country"], ["property"], ["property","proveedor"]); opcional.
-- filters: year (int), city (str), country (str), property (str), provider (str), product_keyword (str); opcionales.
-Datos:
-- Portfolio: [Marca, Propiedad, Ciudad, País, Tipo, Habitaciones]
-- Compras: [referencia_producto, unidades, precio_unitario, precio_total, hotel, fecha, proveedor]
-- Ocupación 2024: [Marca, Propiedad, Ciudad, País, Tipo, YTD, Ene...Dic]
-Reglas:
-- "cuántas X compramos" ⇒ metric="unidades_total", filters.year si se indica, product_keyword con esa X.
-- "gasto/importe de compras" ⇒ metric="importe_total".
-- "ocupación promedio/media" ⇒ metric="ocupacion_media"; si hay ciudad, filters.city. Si no hay año, asume 2024.
-- "habitaciones por país" ⇒ metric="rooms_total", group_by=["country"].
-Devuelve SOLO JSON.
-Pregunta: "{q}"
-"""
+    system_msg = """
+Eres un parser experto en BI hotelero. Tu única tarea es transformar una pregunta en ESPAÑOL a un JSON válido
+que sirva para una API analítica tabular. NO expliques, NO añadas texto, NO pongas bloques de código; devuelve
+EXCLUSIVAMENTE un JSON. Reglas y contexto:
+
+1) Esquema de datos disponible:
+   - Portfolio: [Marca, Propiedad, Ciudad, País, Tipo, Habitaciones]
+   - Compras: [referencia_producto, unidades, precio_unitario, precio_total, hotel, fecha (ISO), proveedor]
+   - Ocupación 2024: [Marca, Propiedad, Ciudad, País, Tipo, YTD, Ene...Dic]
+   No inventes columnas. No inventes datasets.
+
+2) Salida esperada (JSON):
+   {
+     "aggregate": {
+       "metric": "rooms_total" | "importe_total" | "unidades_total" | "ocupacion_media",
+       "group_by": [string, ...]  // opcional; ejemplos: ["country"], ["property"], ["property","proveedor"]
+     },
+     "filters": {
+       "year": int,                // opcional
+       "city": string,             // opcional
+       "country": string,          // opcional
+       "property": string,         // opcional (hotel)
+       "provider": string,         // opcional (mapear “proveedor”)
+       "product_keyword": string   // opcional (palabra clave del producto a buscar en texto)
+     }
+   }
+
+3) Reglas de negocio:
+   - “Habitaciones por país” → metric="rooms_total", group_by=["country"].
+   - “Ocupación promedio/media” → metric="ocupacion_media". Si mencionan ciudad, incluye filters.city.
+     Si no especifican año, asume que el dataset de ocupación es YTD 2024 (no es necesario incluir year).
+   - “Ocupación YTD 2024 por propiedad en <ciudad>” → group_by=["property"], filters.year=2024, filters.city=<ciudad>.
+   - “Gasto/importe/coste de compras” → metric="importe_total". Añade filters.year si lo mencionan explícitamente.
+     Si piden por proveedor u hotel, añade group_by=["proveedor"] o ["property"] (o ambos).
+   - “¿Cuántas <producto> compramos ...?” o “¿cuántas unidades ...?” → metric="unidades_total".
+     Si se menciona año, filters.year; producto, product_keyword con esa palabra (p.ej., “toallas”).
+   - Si no hay suficiente información, devuelve el mejor JSON posible sin inventar.
+
+4) Formato:
+   - Devuelve solo JSON plano sin comentarios, sin fences, sin texto adicional.
+   - Usa claves y valores exactos según las reglas; no devuelvas campos desconocidos.
+    """.strip()
+
+    fewshots = [
+        {
+            "user": "habitaciones por país",
+            "assistant": {"aggregate": {"metric": "rooms_total", "group_by": ["country"]}}
+        },
+        {
+            "user": "ocupación promedio en Barcelona",
+            "assistant": {"aggregate": {"metric": "ocupacion_media"}, "filters": {"city": "Barcelona"}}
+        },
+        {
+            "user": "ocupación ytd 2024 por propiedad en Madrid",
+            "assistant": {"aggregate": {"group_by": ["property"]}, "filters": {"year": 2024, "city": "Madrid"}}
+        },
+        {
+            "user": "importe total de compras 2023 por proveedor",
+            "assistant": {"aggregate": {"metric": "importe_total", "group_by": ["proveedor"]}, "filters": {"year": 2023}}
+        },
+        {
+            "user": "cuántas toallas compramos en 2025",
+            "assistant": {"aggregate": {"metric": "unidades_total"}, "filters": {"year": 2025, "product_keyword": "toallas"}}
+        },
+    ]
+
     try:
         from openai import OpenAI
         client = OpenAI(api_key=OPENAI_API_KEY)
+
+        messages = [{"role": "system", "content": system_msg}]
+        for fs in fewshots:
+            messages.append({"role": "user", "content": fs["user"]})
+            messages.append({"role": "assistant", "content": json.dumps(fs["assistant"], ensure_ascii=False)})
+
+        messages.append({"role": "user", "content": q})
+
         resp = client.chat.completions.create(
             model=LLM_MODEL,
-            messages=[
-                {"role": "system", "content": "Devuelve únicamente JSON válido."},
-                {"role": "user", "content": prompt}
-            ],
+            messages=messages,
             temperature=0.1,
         )
         content = resp.choices[0].message.content.strip()
+
         json_str = content
         if content.startswith("```"):
             json_str = re.sub(r"^```(?:json)?\s*", "", content)
             json_str = re.sub(r"\s*```$", "", json_str)
+
         data = json.loads(json_str)
-        out = {"query": q}
-        if isinstance(data, dict):
-            if "aggregate" in data and isinstance(data["aggregate"], dict):
-                out["aggregate"] = data["aggregate"]
-            if "filters" in data and isinstance(data["filters"], dict):
-                out["filters"] = data["filters"]
-        return out
+        return normalize_llm_json(q, data)
     except Exception as e:
         print("LLM parse error:", e)
         return None
@@ -224,7 +324,7 @@ def compras_apply_filters(df: pd.DataFrame, f: Filters) -> pd.DataFrame:
     # property
     if f.property and "property" in out.columns:
         out = out[out["property"].astype(str).str.contains(f.property, case=False, na=False)]
-    # producto: buscar en TODAS las columnas de texto
+    # producto: buscar en TODAS las columnas de texto (por si no existe una columna específica)
     if f.product_keyword:
         text_cols = list(out.select_dtypes(include=["object"]).columns)
         if text_cols:
@@ -234,7 +334,7 @@ def compras_apply_filters(df: pd.DataFrame, f: Filters) -> pd.DataFrame:
             matched = out[mask]
             if len(matched) > 0:
                 out = matched
-            # si no hay coincidencias, dejamos out tal cual y lo indicaremos en la respuesta
+            # si no hay coincidencias, mantenemos out sin filtrar y avisamos en la respuesta
     return out
 
 def to_records_sorted(df: pd.DataFrame, by: List[str], ascending=False) -> List[dict]:
@@ -287,7 +387,6 @@ def query(req: QueryRequest):
     # ---------- Ocupación promedio (media) ----------
     if agg.metric == "ocupacion_media":
         df = DF_OCUP.copy()
-        # por claridad, no exigimos year; asumimos YTD 2024 del dataset
         if f.city:
             df = df[df["Ciudad"].astype(str).str.lower() == f.city.lower()]
         if "YTD" in df.columns:
@@ -329,7 +428,6 @@ def query(req: QueryRequest):
         if "unidades" in df.columns:
             df["unidades"] = pd.to_numeric(df["unidades"], errors="coerce")
 
-        # copia para chequear si hubo coincidencias por product_keyword
         before_rows = len(df)
         df = compras_apply_filters(df, f)
         after_rows = len(df)
@@ -339,7 +437,6 @@ def query(req: QueryRequest):
             note = f"No se encontraron coincidencias para '{f.product_keyword}' en columnas de texto; devolviendo totales sin filtro de producto."
 
         group = list(agg.group_by or [])
-        # renombrar a 'property' si procede
         if "hotel" in df.columns and "property" not in df.columns:
             df = df.rename(columns={"hotel": "property"})
 
@@ -373,7 +470,6 @@ def query(req: QueryRequest):
         cols_group = [c for c in cols_check if c in df.columns]
 
         if not cols_group:
-            # si no existen columnas de agrupación pedidas
             if agg.metric == "importe_total":
                 total = float(pd.to_numeric(df.get("importe_total", pd.Series(dtype=float)), errors="coerce").sum())
                 ans = "Importe total de compras (sin columnas de agrupación válidas)."
