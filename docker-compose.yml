@@ -7,6 +7,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      - ENABLE_LLM=1
+      - OPENAI_API_KEY=${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}
+      - LLM_MODEL=gpt-4o-mini
+      - SKIP_LOAD_ON_START=0
     expose:
       - "8000"
     restart: unless-stopped
