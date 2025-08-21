@@ -1,277 +1,238 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Demo Hoteles RAG</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Hoteles RAG — Consulta</title>
   <style>
     :root { color-scheme: light dark; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; line-height: 1.4; }
-    header, section { max-width: 980px; margin: 0 auto 20px auto; }
-    h1, h2, h3 { margin: 0 0 10px 0; }
-    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-    .row > * { margin: 2px 0; }
-    input[type="text"], input[type="number"], textarea, select { padding: 8px; width: 100%; max-width: 520px; box-sizing: border-box; }
-    textarea { min-height: 80px; }
-    button { padding: 8px 12px; cursor: pointer; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .card { border: 1px solid #8884; border-radius: 8px; padding: 12px; }
-    .ok { color: #0a0; font-weight: 600; }
-    .err { color: #a00; font-weight: 600; white-space: pre-wrap; }
-    .muted { opacity: .8; font-size: .95em; }
-    table { border-collapse: collapse; width: 100%; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; line-height: 1.4; }
+    h1 { margin: 0 0 12px 0; }
+    .card { border: 1px solid #8884; border-radius: 8px; padding: 14px; margin: 12px 0; }
+    textarea { width: 100%; min-height: 90px; padding: 10px; box-sizing: border-box; }
+    button { padding: 9px 14px; cursor: pointer; }
+    .muted { opacity: .8; }
+    .status { font-weight: 600; margin-left: 8px; }
+    .ok { color: #0a0; }
+    .err { color: #a00; white-space: pre-wrap; }
+    table { border-collapse: collapse; width: 100%; margin-top: 10px; }
     th, td { border: 1px solid #8884; padding: 6px 8px; text-align: left; }
-    code, pre { background: #8881; padding: 2px 4px; border-radius: 4px; }
-    .pill { display: inline-block; padding: 2px 6px; border: 1px solid #8886; border-radius: 999px; font-size: .85em; margin-right: 6px; }
+    details { margin-top: 8px; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Demo Hoteles RAG</h1>
-    <div class="card">
-      <div class="row">
-        <label for="apiBase"><strong>API Base (opcional)</strong></label>
-      </div>
-      <div class="row">
-        <input id="apiBase" type="text" placeholder="(vacío = usar /api del mismo host) o http://31.97.91.221:8000" />
-        <button id="btnUse">Usar</button>
-        <button id="btnHealth">Probar /health</button>
-        <span id="healthStatus" class="muted"></span>
-      </div>
-      <p class="muted">Por defecto este front llama a <code>/api/health</code> y <code>/api/query</code> (proxy Nginx). Si indicas una API Base, usará esa en su lugar.</p>
-    </div>
-  </header>
+  <h1>Hoteles RAG — Consulta</h1>
 
-  <section class="grid">
-    <div class="card">
-      <h2>Consultas de demostración</h2>
-      <ul>
-        <li><span class="pill">Portfolio</span> Habitaciones por país</li>
-        <li><span class="pill">Ocupación 2024</span> YTD por propiedad en ciudad</li>
-        <li><span class="pill">Compras 2023</span> Importe total por hotel y proveedor</li>
-      </ul>
-      <div class="row">
-        <button id="btnDemoRooms">Demo: Habitaciones por país</button>
-        <button id="btnDemoOcup">Demo: YTD 2024 por propiedad en ciudad…</button>
-        <input id="cityDemo" type="text" placeholder="Ciudad (ej.: Madrid)" style="max-width:220px" />
-        <button id="btnDemoCompras">Demo: Compras 2023 por hotel y proveedor</button>
+  <div class="card">
+    <form id="qform">
+      <label for="q"><strong>Escribe tu pregunta</strong></label>
+      <textarea id="q" placeholder="Ejemplos: 
+- Total de habitaciones por país
+- Ocupación YTD 2024 por propiedad en Madrid
+- Coste total de compras 2023 por hotel y proveedor"></textarea>
+      <div style="margin-top:10px; display:flex; gap:10px;">
+        <button type="submit">Preguntar</button>
+        <button type="button" id="clearBtn">Limpiar</button>
+        <span id="status" class="status muted"></span>
       </div>
-    </div>
+    </form>
+    <p class="muted" style="margin-top:8px;">Este front envía tu pregunta a /api/query del mismo host (vía Nginx). No necesitas configurar nada.</p>
+  </div>
 
-    <div class="card">
-      <h2>Consulta personalizada</h2>
-      <div class="row">
-        <label for="txtQuery"><strong>query</strong></label>
-      </div>
-      <textarea id="txtQuery" placeholder="Describe tu consulta (p. ej., 'compras 2023 por hotel y proveedor')"></textarea>
+  <div class="card">
+    <h3>Respuesta</h3>
+    <div id="answer" class="muted">Sin consulta.</div>
+    <details>
+      <summary>Payload enviado</summary>
+      <pre id="payload" style="white-space:pre-wrap; overflow:auto; margin:6px 0;">{}</pre>
+    </details>
+  </div>
 
-      <h3>Filtros (opcionales)</h3>
-      <div class="row">
-        <input id="fCountry" type="text" placeholder="country" style="max-width:240px" />
-        <input id="fCity" type="text" placeholder="city" style="max-width:220px" />
-        <input id="fBrand" type="text" placeholder="brand" style="max-width:200px" />
-      </div>
-      <div class="row">
-        <input id="fProperty" type="text" placeholder="property" style="max-width:240px" />
-        <input id="fType" type="text" placeholder="type" style="max-width:160px" />
-        <input id="fDomain" type="text" placeholder='domain ("all" por defecto)' style="max-width:180px" />
-      </div>
-      <div class="row">
-        <input id="fYear" type="number" placeholder="year (2023/2024)" style="max-width:180px" />
-        <input id="fMonth" type="text" placeholder="month (Ene/Feb/...)" style="max-width:180px" />
-      </div>
+  <div class="card">
+    <h3>Fuentes</h3>
+    <div id="sources" class="muted">Sin fuentes.</div>
+  </div>
 
-      <h3>Agregación (opcional)</h3>
-      <div class="row">
-        <select id="aggMetric" style="max-width:220px">
-          <option value="">(sin metric)</option>
-          <option value="rooms_total">rooms_total</option>
-          <option value="importe_total">importe_total</option>
-        </select>
-        <input id="aggGroupBy" type="text" placeholder='group_by (coma): p.ej. country o property,proveedor' style="max-width:320px" />
-        <input id="aggWeighting" type="text" placeholder="weighting (opcional)" style="max-width:220px" />
-      </div>
-
-      <div class="row">
-        <button id="btnSend">Enviar consulta</button>
-        <button id="btnClear">Limpiar</button>
-      </div>
-      <details>
-        <summary>Ver payload</summary>
-        <pre id="payloadView">{}</pre>
-      </details>
-    </div>
-  </section>
-
-  <section class="grid">
-    <div class="card">
-      <h2>Respuesta</h2>
-      <div id="answerBox" class="muted">Sin consulta.</div>
-    </div>
-    <div class="card">
-      <h2>Fuentes</h2>
-      <div id="sourcesBox" class="muted">Sin fuentes.</div>
-    </div>
-  </section>
-
-  <section class="card">
-    <h2>Aggregates</h2>
-    <div id="aggBox" class="muted">Sin datos.</div>
-  </section>
+  <div class="card">
+    <h3>Aggregates</h3>
+    <div id="agg" class="muted">Sin datos.</div>
+  </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const LS_KEY = "apiBaseUrl";
 
-    function getApiBase() { return ($("apiBase").value || "").trim(); }
-    function apiUrl(path) {
-      const base = getApiBase().replace(/\/+$/, "");
-      if (base) return base + path;
-      return path.startsWith("/api") ? path : "/api" + path;
-    }
-    function setStatus(msg, ok=true) {
-      const el = $("healthStatus");
+    function setStatus(msg, cls="") {
+      const el = $("status");
       el.textContent = msg || "";
-      el.className = ok ? "ok" : "err";
+      el.className = "status " + (cls || "");
     }
-    function renderJSON(id, obj) { $(id).textContent = JSON.stringify(obj ?? {}, null, 2); }
-    function renderAnswer(text) { $("answerBox").textContent = text || "Sin respuesta."; $("answerBox").className = text ? "" : "muted"; }
+
+    function renderAnswer(text) {
+      const el = $("answer");
+      el.textContent = text || "Sin respuesta.";
+      el.className = text ? "" : "muted";
+    }
+
+    function renderPayload(obj) {
+      $("payload").textContent = JSON.stringify(obj ?? {}, null, 2);
+    }
+
     function renderSources(list) {
-      const box = $("sourcesBox");
-      if (!Array.isArray(list) || list.length === 0) { box.textContent = "Sin fuentes."; box.className = "muted"; return; }
-      box.className = ""; box.innerHTML = "";
+      const box = $("sources");
+      if (!Array.isArray(list) || list.length === 0) {
+        box.textContent = "Sin fuentes.";
+        box.className = "muted";
+        return;
+      }
+      box.className = "";
+      box.innerHTML = "";
       const ul = document.createElement("ul");
       list.forEach(s => {
         const li = document.createElement("li");
-        const title = s.title || "Fuente";
-        const url = s.url || "#";
-        const note = s.note ? ` — ${s.note}` : "";
+        const t = s.title || "Fuente";
+        const link = s.url || "#";
+        const note = s.note ? " — " + s.note : "";
         const a = document.createElement("a");
-        a.href = url; a.textContent = title; a.target = "_blank"; a.rel = "noopener";
+        a.href = link; a.textContent = t; a.target = "_blank"; a.rel = "noopener";
         li.appendChild(a);
-        if (note) { const span = document.createElement("span"); span.textContent = note; li.appendChild(span); }
+        if (note) li.appendChild(document.createTextNode(note));
         ul.appendChild(li);
       });
       box.appendChild(ul);
     }
+
     function renderAggregates(rows) {
-      const box = $("aggBox");
-      if (!Array.isArray(rows) || rows.length === 0) { box.textContent = "Sin datos."; box.className = "muted"; return; }
-      box.className = ""; box.innerHTML = "";
+      const box = $("agg");
+      if (!Array.isArray(rows) || rows.length === 0) {
+        box.textContent = "Sin datos.";
+        box.className = "muted";
+        return;
+      }
+      box.className = "";
+      box.innerHTML = "";
+
       const cols = Object.keys(rows[0] || {});
-      if (cols.length === 0) { box.textContent = "Sin datos."; box.className = "muted"; return; }
+      if (cols.length === 0) {
+        box.textContent = "Sin datos.";
+        box.className = "muted";
+        return;
+      }
+
       const table = document.createElement("table");
-      const thead = document.createElement("thead"); const trh = document.createElement("tr");
-      cols.forEach(c => { const th = document.createElement("th"); th.textContent = c; trh.appendChild(th); });
-      thead.appendChild(trh); table.appendChild(thead);
+      const thead = document.createElement("thead");
+      const trh = document.createElement("tr");
+      cols.forEach(c => {
+        const th = document.createElement("th");
+        th.textContent = c;
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+
       const tbody = document.createElement("tbody");
       rows.forEach(r => {
         const tr = document.createElement("tr");
-        cols.forEach(c => { const td = document.createElement("td"); const v = r[c]; td.textContent = v == null ? "" : String(v); tr.appendChild(td); });
+        cols.forEach(c => {
+          const td = document.createElement("td");
+          const v = r[c];
+          td.textContent = v == null ? "" : String(v);
+          tr.appendChild(td);
+        });
         tbody.appendChild(tr);
       });
-      table.appendChild(tbody); box.appendChild(table);
+      table.appendChild(tbody);
+
+      box.appendChild(table);
     }
-    function buildFilters() {
-      const f = {};
-      const map = { country:"fCountry", city:"fCity", brand:"fBrand", property:"fProperty", type:"fType", domain:"fDomain", year:"fYear", month:"fMonth" };
-      Object.entries(map).forEach(([k,id]) => { const el = $(id); if (!el) return;
-        const val = (el.value || "").trim(); if (val !== "") f[k] = (k === "year") ? Number(val) : val; });
-      return Object.keys(f).length ? f : null;
+
+    // Heurística mínima: mapea texto libre a payloads soportados por el backend
+    function buildPayloadFromQuestion(q) {
+      const text = (q || "").toLowerCase();
+
+      // 1) Habitaciones por país
+      if (text.includes("habitacion") && (text.includes("país") || text.includes("pais"))) {
+        return {
+          query: q,
+          aggregate: { metric: "rooms_total", group_by: ["country"] }
+        };
+      }
+
+      // 2) Ocupación YTD 2024 por propiedad en <ciudad>
+      if ((text.includes("ocup") || text.includes("ytd")) && text.includes("2024")) {
+        // intentar extraer ciudad después de "en "
+        let city = null;
+        const m = q.match(/en\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?:\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+){0,2})/i);
+        if (m) city = m[1].trim();
+        const payload = { query: q, aggregate: { group_by: ["property"] } };
+        if (city) payload.filters = { city: city, year: 2024 };
+        else payload.filters = { year: 2024 };
+        return payload;
+      }
+
+      // 3) Compras 2023 por hotel y proveedor
+      if (text.includes("compra") && text.includes("2023")) {
+        return {
+          query: q,
+          filters: { year: 2023 },
+          aggregate: { metric: "importe_total", group_by: ["property","proveedor"] }
+        };
+      }
+
+      // Por defecto (solo query)
+      return { query: q };
     }
-    function buildAggregate() {
-      const metric = $("aggMetric").value.trim();
-      const groupByStr = $("aggGroupBy").value.trim();
-      const weighting = $("aggWeighting").value.trim();
-      const agg = {};
-      if (metric) agg.metric = metric;
-      if (groupByStr) agg.group_by = groupByStr.split(",").map(s => s.trim()).filter(Boolean);
-      if (weighting) agg.weighting = weighting;
-      return Object.keys(agg).length ? agg : null;
+
+    async function getJSON(url, opts) {
+      const res = await fetch(url, opts);
+      if (!res.ok) {
+        const t = await res.text().catch(()=>"");
+        throw new Error("HTTP " + res.status + " " + t);
+      }
+      return res.json();
     }
-    function buildPayloadFromForm() {
-      const query = $("txtQuery").value.trim();
-      const filters = buildFilters();
-      const aggregate = buildAggregate();
-      const top_k = undefined;
-      const rerank = true;
-      const return_sources = true;
-      const payload = { query };
-      if (filters) payload.filters = filters;
-      if (aggregate) payload.aggregate = aggregate;
-      if (typeof top_k === "number" && !Number.isNaN(top_k)) payload.top_k = top_k;
-      payload.rerank = rerank; payload.return_sources = return_sources;
-      return payload;
-    }
-    async function runQuery(payload) {
-      renderJSON("payloadView", payload);
-      renderAnswer("Consultando..."); renderAggregates([]); renderSources([]);
+
+    async function ask(q) {
+      const payload = buildPayloadFromQuestion(q);
+      renderPayload(payload);
+      renderAnswer("Consultando...");
+      $("agg").textContent = "Sin datos.";
+      $("agg").className = "muted";
+      $("sources").textContent = "Sin fuentes.";
+      $("sources").className = "muted";
+      setStatus("Enviando…", "");
+
       try {
-        const res = await fetch(apiUrl("/query"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
-        if (!res.ok) { const t = await res.text().catch(()=> ""); throw new Error("HTTP " + res.status + " " + t); }
-        const data = await res.json();
+        const data = await getJSON("/api/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
         renderAnswer(data.answer || "Sin 'answer'.");
         renderAggregates(Array.isArray(data.aggregates) ? data.aggregates : []);
         renderSources(Array.isArray(data.sources) ? data.sources : []);
-        setStatus("OK /query", true);
+        setStatus("OK", "ok");
       } catch (e) {
-        setStatus("Error /query", false);
-        renderAnswer("Error al consultar /query.");
-        $("aggBox").textContent = "Sin datos."; $("aggBox").className = "muted";
-        $("sourcesBox").textContent = "Sin fuentes."; $("sourcesBox").className = "muted";
+        setStatus("Error al consultar /api/query", "err");
+        renderAnswer("Error al consultar /api/query.");
         console.error(e);
       }
     }
-    async function pingHealth() {
-      setStatus("Comprobando…", true);
-      try {
-        const res = await fetch(apiUrl("/health"));
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        const j = await res.json();
-        if (j && j.status === "ok") setStatus("OK /health", true);
-        else setStatus("Respuesta inesperada de /health", false);
-      } catch (e) { console.error(e); setStatus("Error /health", false); }
-    }
-    function demoRoomsByCountry() {
-      const payload = { query:"Total de habitaciones por país", aggregate:{ metric:"rooms_total", group_by:["country"] } };
-      $("txtQuery").value = payload.query; $("aggMetric").value = "rooms_total"; $("aggGroupBy").value = "country";
-      renderJSON("payloadView", payload); runQuery(payload);
-    }
-    function demoOcupYTDByCity() {
-      const city = ($("cityDemo").value || "").trim() || "Madrid";
-      const payload = { query:`Ocupación YTD 2024 por propiedad en ${city}`, filters:{ city: city, year: 2024 }, aggregate:{ group_by:["property"] } };
-      $("txtQuery").value = payload.query; $("fCity").value = city; $("fYear").value = "2024"; $("aggGroupBy").value = "property";
-      renderJSON("payloadView", payload); runQuery(payload);
-    }
-    function demoCompras2023() {
-      const payload = { query:"Coste total de compras 2023 por hotel y proveedor", filters:{ year: 2023 }, aggregate:{ metric:"importe_total", group_by:["property","proveedor"] } };
-      $("txtQuery").value = payload.query; $("fYear").value = "2023"; $("aggMetric").value = "importe_total"; $("aggGroupBy").value = "property,proveedor";
-      renderJSON("payloadView", payload); runQuery(payload);
-    }
-    function clearAll() {
-      $("txtQuery").value = "";
-      ["fCountry","fCity","fBrand","fProperty","fType","fDomain","fYear","fMonth"].forEach(id => { const el = $(id); if (el) el.value = ""; });
-      $("aggMetric").value = ""; $("aggGroupBy").value = ""; $("aggWeighting").value = "";
-      renderJSON("payloadView", {}); renderAnswer("Sin consulta.");
-      $("aggBox").textContent = "Sin datos."; $("aggBox").className = "muted";
-      $("sourcesBox").textContent = "Sin fuentes."; $("sourcesBox").className = "muted";
-      setStatus("", true);
-    }
+
     window.addEventListener("DOMContentLoaded", () => {
-      const saved = localStorage.getItem(LS_KEY) || "";
-      $("apiBase").value = saved || "";
-      $("btnUse").addEventListener("click", () => { localStorage.setItem(LS_KEY, getApiBase()); setStatus("API Base guardada.", true); });
-      $("btnHealth").addEventListener("click", pingHealth);
-      $("btnSend").addEventListener("click", () => {
-        const q = $("txtQuery").value.trim();
-        if (!q) { setStatus("El campo 'query' es obligatorio.", false); return; }
-        const payload = buildPayloadFromForm(); runQuery(payload);
+      $("qform").addEventListener("submit", (ev) => {
+        ev.preventDefault();
+        const q = $("q").value.trim();
+        if (!q) { setStatus("Escribe una pregunta", "err"); return; }
+        ask(q);
       });
-      $("btnClear").addEventListener("click", clearAll);
-      $("btnDemoRooms").addEventListener("click", demoRoomsByCountry);
-      $("btnDemoOcup").addEventListener("click", demoOcupYTDByCity);
-      $("btnDemoCompras").addEventListener("click", demoCompras2023);
+      $("clearBtn").addEventListener("click", () => {
+        $("q").value = "";
+        renderPayload({});
+        renderAnswer("Sin consulta.");
+        $("agg").textContent = "Sin datos."; $("agg").className = "muted";
+        $("sources").textContent = "Sin fuentes."; $("sources").className = "muted";
+        setStatus("", "");
+      });
     });
   </script>
 </body>
