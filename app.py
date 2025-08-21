@@ -18,11 +18,11 @@ URL_OCUP2024  = "https://docs.google.com/spreadsheets/d/1XVNeaqFWFOt_g2TVY1YxyE3
 
 ENABLE_LLM = os.getenv("ENABLE_LLM", "0") == "1"
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
-OPENAI_API_KEY = os.getenv("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", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # ============ APP INIT ============
 
-app = FastAPI(title="Hotels RAG Demo (NL→JSON + LLM opcional)")
+app = FastAPI(title="Hotels RAG Demo (NL→JSON + LLM)")
 
 app.add_middleware(
     CORSMiddleware,
@@ -71,13 +71,14 @@ class Filters(BaseModel):
     year: Optional[int] = None
     month: Optional[str] = None
     domain: Optional[str] = "all"
-    # extras para Compras:
-    provider: Optional[str] = None           # mapea a 'proveedor'
-    product_keyword: Optional[str] = None    # búsqueda textual en columnas producto/referencia/etc.
+    # extras Compras
+    provider: Optional[str] = None            # mapea a 'proveedor'
+    product_keyword: Optional[str] = None     # búsqueda textual amplia
 
 class Aggregate(BaseModel):
-    metric: Optional[str] = None             # rooms_total | importe_total | unidades_total
-    group_by: Optional[List[str]] = None     # p.ej. ["country"], ["property"], ["property","proveedor"]
+    # soportadas: rooms_total | importe_total | unidades_total | ocupacion_media
+    metric: Optional[str] = None
+    group_by: Optional[List[str]] = None
     weighting: Optional[str] = None
 
 class QueryRequest(BaseModel):
@@ -100,7 +101,17 @@ def interpret_nl_heuristic(q: str) -> dict:
     if ("habitacion" in text or "habitaciones" in text) and ("país" in text or "pais" in text or "country" in text):
         return {"query": q, "aggregate": {"metric": "rooms_total", "group_by": ["country"]}}
 
-    # Ocupación YTD 2024 (opcional ciudad)
+    # Ocupación promedio (media) — por ciudad opcional
+    if ("ocup" in text or "ocupación" in text) and ("promedio" in text or "media" in text):
+        city = None
+        m = re.search(r"\ben\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?:\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+){0,2})\b", q)
+        if m: city = m.group(1).strip()
+        payload = {"query": q, "aggregate": {"metric": "ocupacion_media"}}
+        if city:
+            payload["filters"] = {"city": city}
+        return payload
+
+    # Ocupación YTD 2024 (ranking por propiedad en ciudad opcional)
     if ("ocup" in text or "ytd" in text) and ("2024" in text):
         city = None
         m = re.search(r"\ben\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+(?:\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+){0,2})\b", q)
@@ -113,15 +124,13 @@ def interpret_nl_heuristic(q: str) -> dict:
     if ("compra" in text or "compras" in text) and "2023" in text and ("importe" in text or "gasto" in text or "coste" in text):
         return {"query": q, "filters": {"year": 2023}, "aggregate": {"metric": "importe_total", "group_by": ["property","proveedor"]}}
 
-    # Compras: unidades (p.ej., "cuántas toallas compramos en 2025")
-    if ("compra" in text or "compramos" in text or "compraste" in text or "comprar" in text) and ("cuant" in text or "cuánt" in text or "unidades" in text):
-        # intenta detectar año
+    # Compras: unidades (cuántas X compramos en <año>)
+    if ("compra" in text or "compramos" in text or "compraste" in text or "comprar" in text) and (("cuant" in text) or ("cuánt" in text) or ("unidades" in text)):
         year = None
         ym = re.search(r"(20\d{2})", text)
         if ym:
             try: year = int(ym.group(1))
             except: pass
-        # intenta detectar palabra de producto (una palabra después de "cuantas/cuántas")
         prod = None
         pm = re.search(r"(?:cuant[ao]s?|cuánt[ao]s?)\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)", text)
         if pm:
@@ -139,35 +148,30 @@ def interpret_nl_heuristic(q: str) -> dict:
 
 def call_llm_nl_to_json(q: str) -> Optional[dict]:
     """
-    Pide al LLM que devuelva un JSON con:
-    {
-      "aggregate": {"metric": "...", "group_by": [...]},
-      "filters": {"year": 2025, "city": "...", "provider":"...", "product_keyword":"..."}
-    }
+    Pide al LLM que devuelva JSON con:
+      aggregate.metric ∈ {"rooms_total","importe_total","unidades_total","ocupacion_media"}
+      aggregate.group_by opcional
+      filters: year, city, country, property, provider, product_keyword
+    Reglas: usa ocupacion_media si piden 'promedio' o 'media' de ocupación, asume 2024 si no indican año.
     """
     if not ENABLE_LLM or not OPENAI_API_KEY or not q.strip():
         return None
 
     prompt = f"""
-Eres un parser que convierte una pregunta de usuario sobre datos hoteleros en un JSON para una API.
-La API entiende:
-- metric: "rooms_total" | "importe_total" | "unidades_total"
-- group_by: lista de campos (p.ej., ["country"], ["property"], ["property","proveedor"]); opcional
+Eres un parser que convierte la pregunta del usuario en JSON para una API.
+- metric: "rooms_total" | "importe_total" | "unidades_total" | "ocupacion_media"
+- group_by: lista de campos (p.ej., ["country"], ["property"], ["property","proveedor"]); opcional.
 - filters: year (int), city (str), country (str), property (str), provider (str), product_keyword (str); opcionales.
-
-Datos disponibles:
-- Portfolio: columnas [Marca, Propiedad, Ciudad, País, Tipo, Habitaciones]
-- Compras: columnas [referencia_producto, unidades, precio_unitario, precio_total, hotel, fecha (ISO), proveedor]
-- Ocupación 2024: columnas [Marca, Propiedad, Ciudad, País, Tipo, YTD, Ene...Dic]
-
+Datos:
+- Portfolio: [Marca, Propiedad, Ciudad, País, Tipo, Habitaciones]
+- Compras: [referencia_producto, unidades, precio_unitario, precio_total, hotel, fecha, proveedor]
+- Ocupación 2024: [Marca, Propiedad, Ciudad, País, Tipo, YTD, Ene...Dic]
 Reglas:
-- Si la pregunta pide "cuántas unidades" o "cuántas X compramos", usa metric="unidades_total" y dataset Compras.
-- Para Compras, usa filters.year si se menciona año; si se menciona un producto (p.ej., "toallas"), mapea a filters.product_keyword con esa palabra.
-- Si piden gasto/importe/coste en Compras, usa metric="importe_total".
-- Para ocupación YTD 2024 por propiedad, usa group_by=["property"] y filters.year=2024; si se da ciudad, filters.city.
-- Para habitaciones por país, usa metric="rooms_total" y group_by=["country"].
-
-Devuelve SOLO un JSON válido sin texto adicional.
+- "cuántas X compramos" ⇒ metric="unidades_total", filters.year si se indica, product_keyword con esa X.
+- "gasto/importe de compras" ⇒ metric="importe_total".
+- "ocupación promedio/media" ⇒ metric="ocupacion_media"; si hay ciudad, filters.city. Si no hay año, asume 2024.
+- "habitaciones por país" ⇒ metric="rooms_total", group_by=["country"].
+Devuelve SOLO JSON.
 Pregunta: "{q}"
 """
     try:
@@ -182,14 +186,11 @@ Pregunta: "{q}"
             temperature=0.1,
         )
         content = resp.choices[0].message.content.strip()
-        # intenta extraer JSON
         json_str = content
-        # elimina fences si los hubiese
         if content.startswith("```"):
             json_str = re.sub(r"^```(?:json)?\s*", "", content)
             json_str = re.sub(r"\s*```$", "", json_str)
         data = json.loads(json_str)
-        # sanity-check
         out = {"query": q}
         if isinstance(data, dict):
             if "aggregate" in data and isinstance(data["aggregate"], dict):
@@ -202,40 +203,38 @@ Pregunta: "{q}"
         return None
 
 def interpret_nl_to_queryrequest(q: str) -> dict:
-    # 1) LLM si está habilitado
     llm = call_llm_nl_to_json(q)
-    if llm: return llm
-    # 2) Heurística fallback
+    if llm:
+        return llm
     return interpret_nl_heuristic(q)
 
 # ============ HELPERS DE CÁLCULO ============
 
 def compras_apply_filters(df: pd.DataFrame, f: Filters) -> pd.DataFrame:
     out = df.copy()
-    # renombrar hotel->property para homogeneidad
-    if "hotel" in out.columns:
+    if "hotel" in out.columns and "property" not in out.columns:
         out = out.rename(columns={"hotel": "property"})
     # año
-    if f.year is not None:
-        if "fecha" in out.columns:
-            out["fecha"] = pd.to_datetime(out["fecha"], errors="coerce")
-            out = out[out["fecha"].dt.year == f.year]
+    if f.year is not None and "fecha" in out.columns:
+        out["fecha"] = pd.to_datetime(out["fecha"], errors="coerce")
+        out = out[out["fecha"].dt.year == f.year]
     # proveedor
-    if f.provider:
-        if "proveedor" in out.columns:
-            out = out[out["proveedor"].astype(str).str.contains(f.provider, case=False, na=False)]
+    if f.provider and "proveedor" in out.columns:
+        out = out[out["proveedor"].astype(str).str.contains(f.provider, case=False, na=False)]
     # property
-    if f.property:
-        if "property" in out.columns:
-            out = out[out["property"].astype(str).str.contains(f.property, case=False, na=False)]
-    # product_keyword: buscar en posibles columnas de texto
+    if f.property and "property" in out.columns:
+        out = out[out["property"].astype(str).str.contains(f.property, case=False, na=False)]
+    # producto: buscar en TODAS las columnas de texto
     if f.product_keyword:
-        cols = [c for c in ["producto","referencia_producto","descripcion","categoria","concepto"] if c in out.columns]
-        if cols:
+        text_cols = list(out.select_dtypes(include=["object"]).columns)
+        if text_cols:
             mask = False
-            for c in cols:
-                mask = mask | out[c].astype(str).str.contains(f.product_keyword, case=False, na=False)
-            out = out[mask]
+            for c in text_cols:
+                mask = (mask | out[c].astype(str).str.contains(f.product_keyword, case=False, na=False))
+            matched = out[mask]
+            if len(matched) > 0:
+                out = matched
+            # si no hay coincidencias, dejamos out tal cual y lo indicaremos en la respuesta
     return out
 
 def to_records_sorted(df: pd.DataFrame, by: List[str], ascending=False) -> List[dict]:
@@ -258,7 +257,7 @@ def reload_data():
 def query(req: QueryRequest):
     ensure_loaded()
 
-    # Auto-interpretación NL si faltan aggregate/filters
+    # Autointerpretación desde NL si faltan aggregate/filters
     if (req.aggregate is None) and (req.filters is None) and (req.query or "").strip():
         interpreted = interpret_nl_to_queryrequest(req.query)
         if "aggregate" in interpreted and interpreted["aggregate"]:
@@ -269,7 +268,7 @@ def query(req: QueryRequest):
     f = req.filters or Filters()
     agg = req.aggregate or Aggregate()
 
-    # ---------- Caso Portfolio: rooms_total por country ----------
+    # ---------- Habitaciones por país ----------
     if agg.metric == "rooms_total" and (agg.group_by or []) == ["country"]:
         df = DF_PORT.copy()
         df = df.rename(columns={"País": "country", "Habitaciones": "rooms_total"})
@@ -285,54 +284,82 @@ def query(req: QueryRequest):
             "sources": [s for s in source_list() if s["title"] == "Portfolio"],
         }
 
-    # ---------- Caso Ocupación: YTD 2024 por property (opcional city) ----------
-    if f.year == 2024 and (agg.group_by or []) == ["property"]:
+    # ---------- Ocupación promedio (media) ----------
+    if agg.metric == "ocupacion_media":
+        df = DF_OCUP.copy()
+        # por claridad, no exigimos year; asumimos YTD 2024 del dataset
+        if f.city:
+            df = df[df["Ciudad"].astype(str).str.lower() == f.city.lower()]
+        if "YTD" in df.columns:
+            df["YTD"] = pd.to_numeric(df["YTD"], errors="coerce")
+            mean_val = float(df["YTD"].mean()) if len(df) else None
+        else:
+            mean_val = None
+        aggregates = []
+        if mean_val is not None:
+            record = {"ocupacion_media": round(mean_val, 2)}
+            if f.city: record["city"] = f.city
+            aggregates.append(record)
+        return {
+            "answer": ("Ocupación promedio (YTD) " + (f"en {f.city}" if f.city else "global") + "."),
+            "aggregates": aggregates,
+            "sources": [s for s in source_list() if s["title"] == "Ocupación 2024"],
+        }
+
+    # ---------- Ocupación: ranking YTD 2024 por propiedad (opcional ciudad) ----------
+    if (agg.group_by or []) == ["property"]:
         df = DF_OCUP.copy()
         df = df.rename(columns={"Propiedad": "property"})
         if f.city:
             df = df[df["Ciudad"].astype(str).str.lower() == f.city.lower()]
         if "YTD" in df.columns:
             df["YTD"] = pd.to_numeric(df["YTD"], errors="coerce")
-        out = df[["property","YTD"]].copy()
+        out = df[["property", "YTD"]].copy()
         return {
-            "answer": f"Ranking YTD 2024 por propiedad" + (f" en {f.city}" if f.city else "") + ".",
+            "answer": f"Ranking YTD por propiedad" + (f" en {f.city}" if f.city else "") + ".",
             "aggregates": to_records_sorted(out, by=["YTD"], ascending=False),
             "sources": [s for s in source_list() if s["title"] == "Ocupación 2024"],
         }
 
-    # ---------- Caso Compras: importe_total o unidades_total ----------
+    # ---------- Compras: importe_total o unidades_total ----------
     if agg.metric in {"importe_total", "unidades_total"}:
         df = DF_COMP.copy()
-        # normalizaciones
         if "precio_total" in df.columns:
             df["importe_total"] = pd.to_numeric(df["precio_total"], errors="coerce")
         if "unidades" in df.columns:
             df["unidades"] = pd.to_numeric(df["unidades"], errors="coerce")
 
+        # copia para chequear si hubo coincidencias por product_keyword
+        before_rows = len(df)
         df = compras_apply_filters(df, f)
+        after_rows = len(df)
 
-        # Agrupación dinámica
+        note = None
+        if f.product_keyword and after_rows == before_rows:
+            note = f"No se encontraron coincidencias para '{f.product_keyword}' en columnas de texto; devolviendo totales sin filtro de producto."
+
         group = list(agg.group_by or [])
-        # map 'property' and 'proveedor' to existing cols
-        rename_map = {}
+        # renombrar a 'property' si procede
         if "hotel" in df.columns and "property" not in df.columns:
-            rename_map["hotel"] = "property"
-        if rename_map:
-            df = df.rename(columns=rename_map)
+            df = df.rename(columns={"hotel": "property"})
 
-        # Si no hay group_by => total
+        # Sin group_by => totales
         if not group:
             if agg.metric == "importe_total":
                 total = float(pd.to_numeric(df.get("importe_total", pd.Series(dtype=float)), errors="coerce").sum())
+                ans = "Importe total de compras" + (f" en {f.year}" if f.year else "") + "."
+                if note: ans += " " + note
                 return {
-                    "answer": "Importe total de compras" + (f" en {f.year}" if f.year else "") + ".",
+                    "answer": ans,
                     "aggregates": [{"importe_total": total}],
                     "sources": [s for s in source_list() if s["title"] == "Compras"],
                 }
             else:
                 total = float(pd.to_numeric(df.get("unidades", pd.Series(dtype=float)), errors="coerce").sum())
+                ans = "Unidades totales compradas" + (f" en {f.year}" if f.year else "") + (f" del producto '{f.product_keyword}'" if f.product_keyword else "") + "."
+                if note: ans += " " + note
                 return {
-                    "answer": "Unidades totales compradas" + (f" en {f.year}" if f.year else "") + (f" del producto '{f.product_keyword}'" if f.product_keyword else "") + ".",
+                    "answer": ans,
                     "aggregates": [{"unidades_total": total}],
                     "sources": [s for s in source_list() if s["title"] == "Compras"],
                 }
@@ -340,49 +367,46 @@ def query(req: QueryRequest):
         # Con group_by
         cols_check = []
         for g in group:
-            if g == "proveedor":
-                cols_check.append("proveedor")
-            elif g == "property":
-                cols_check.append("property")
-            else:
-                cols_check.append(g)
-        # filtra a columnas existentes
+            if g == "proveedor": cols_check.append("proveedor")
+            elif g == "property": cols_check.append("property")
+            else: cols_check.append(g)
         cols_group = [c for c in cols_check if c in df.columns]
+
         if not cols_group:
-            # si el group_by no existe en df, respondemos totales simples
+            # si no existen columnas de agrupación pedidas
             if agg.metric == "importe_total":
                 total = float(pd.to_numeric(df.get("importe_total", pd.Series(dtype=float)), errors="coerce").sum())
-                return {
-                    "answer": "Importe total de compras (sin columnas de agrupación válidas).",
-                    "aggregates": [{"importe_total": total}],
-                    "sources": [s for s in source_list() if s["title"] == "Compras"],
-                }
+                ans = "Importe total de compras (sin columnas de agrupación válidas)."
+                if note: ans += " " + note
+                return {"answer": ans, "aggregates": [{"importe_total": total}], "sources": [s for s in source_list() if s["title"] == "Compras"]}
             else:
                 total = float(pd.to_numeric(df.get("unidades", pd.Series(dtype=float)), errors="coerce").sum())
-                return {
-                    "answer": "Unidades totales compradas (sin columnas de agrupación válidas).",
-                    "aggregates": [{"unidades_total": total}],
-                    "sources": [s for s in source_list() if s["title"] == "Compras"],
-                }
+                ans = "Unidades totales compradas (sin columnas de agrupación válidas)."
+                if note: ans += " " + note
+                return {"answer": ans, "aggregates": [{"unidades_total": total}], "sources": [s for s in source_list() if s["title"] == "Compras"]}
 
         if agg.metric == "importe_total":
             g = df.groupby(cols_group, dropna=False)["importe_total"].sum(min_count=1).reset_index()
+            ans = "Importe total de compras por " + ", ".join(cols_group) + (f" en {f.year}" if f.year else "") + "."
+            if note: ans += " " + note
             return {
-                "answer": "Importe total de compras por " + ", ".join(cols_group) + (f" en {f.year}" if f.year else "") + ".",
+                "answer": ans,
                 "aggregates": to_records_sorted(g, by=["importe_total"], ascending=False),
                 "sources": [s for s in source_list() if s["title"] == "Compras"],
             }
         else:
             g = df.groupby(cols_group, dropna=False)["unidades"].sum(min_count=1).reset_index()
+            ans = "Unidades totales compradas por " + ", ".join(cols_group) + (f" en {f.year}" if f.year else "") + (f" del producto '{f.product_keyword}'" if f.product_keyword else "") + "."
+            if note: ans += " " + note
             return {
-                "answer": "Unidades totales compradas por " + ", ".join(cols_group) + (f" en {f.year}" if f.year else "") + (f" del producto '{f.product_keyword}'" if f.product_keyword else "") + ".",
+                "answer": ans,
                 "aggregates": to_records_sorted(g, by=["unidades"], ascending=False),
                 "sources": [s for s in source_list() if s["title"] == "Compras"],
             }
 
     # ---------- Fallback ----------
     return {
-        "answer": "Consulta no reconocida. Prueba ejemplos: 'Total de habitaciones por país', 'Ocupación YTD 2024 por propiedad en <ciudad>', 'Coste total de compras 2023 por hotel y proveedor', '¿Cuántas toallas compramos en 2025?'.",
+        "answer": "Consulta no reconocida. Ejemplos: 'Ocupación promedio en Barcelona', '¿Cuántas toallas compramos en 2024?', 'Total de habitaciones por país'.",
         "aggregates": [],
         "sources": source_list(),
     }
