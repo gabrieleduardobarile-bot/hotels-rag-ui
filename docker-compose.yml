@@ -1,4 +1,5 @@
 version: "3.8"
+
 services:
   api:
     container_name: hotels-rag-api
@@ -8,3 +9,13 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+
+  web:
+    container_name: hotels-rag-web
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
