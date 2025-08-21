@@ -1,0 +1,1 @@
+fastapi0.110.0 uvicorn[standard]0.29.0 pydantic2.6.1 pandas2.2.2 requests==2.32.3
