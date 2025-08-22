@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Room 00 - AI Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 50%, #404040 100%);
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .chat-container {
+            background: #1e1e1e;
+            border: 1px solid #333;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            width: 100%;
+            max-width: 800px;
+            height: 600px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+            color: #00ff41;
+            padding: 20px;
+            text-align: center;
+            border-radius: 20px 20px 0 0;
+            border-bottom: 1px solid #333;
+            position: relative;
+        }
+
+        .chat-header h1 {
+            font-size: 24px;
+            margin-bottom: 5px;
+            text-shadow: 0 0 10px #00ff41;
+            font-weight: 300;
+            letter-spacing: 2px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .chat-header p {
+            opacity: 0.7;
+            font-size: 14px;
+            color: #888;
+        }
+
+        .status-indicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 12px;
+            height: 12px;
+            background: #00ff41;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.5);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: #1e1e1e;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .message.bot .message-content {
+            background: #2a2a2a;
+            color: #00ff41;
+            border: 1px solid #333;
+            border-bottom-left-radius: 8px;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #333 0%, #555 100%);
+            color: #fff;
+            border-bottom-right-radius: 8px;
+        }
+
+        .typing-indicator {
+            display: none;
+            padding: 10px 18px;
+            background: #2a2a2a;
+            border: 1px solid #333;
+            border-radius: 18px;
+            border-bottom-left-radius: 8px;
+            max-width: 70%;
+            margin-bottom: 15px;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .typing-dots span {
+            width: 8px;
+            height: 8px;
+            background: #00ff41;
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .typing-dots span:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+
+        @keyframes typing {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
+            30% { transform: translateY(-10px); opacity: 1; }
+        }
+
+        .chat-input {
+            padding: 20px;
+            background: #1a1a1a;
+            border-top: 1px solid #333;
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input input {
+            flex: 1;
+            padding: 12px 18px;
+            border: 1px solid #333;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+            background: #2a2a2a;
+            color: #fff;
+            transition: border-color 0.3s;
+        }
+
+        .chat-input input:focus {
+            border-color: #00ff41;
+            box-shadow: 0 0 10px rgba(0, 255, 65, 0.3);
+        }
+
+        .chat-input input::placeholder {
+            color: #666;
+        }
+
+        .send-btn {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #00ff41 0%, #00cc33 100%);
+            color: #000;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .send-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 65, 0.3);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.6;
+            transform: none;
+            cursor: not-allowed;
+        }
+
+        .error-message {
+            background: #2a1a1a !important;
+            color: #ff4444 !important;
+            border-left: 4px solid #ff4444 !important;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #333;
+            border-radius: 4px;
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .chat-container { 
+                height: calc(100vh - 20px); 
+                border-radius: 15px; 
+            }
+            .chat-header { 
+                border-radius: 15px 15px 0 0; 
+                padding: 15px; 
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <div class="status-indicator" id="statusIndicator"></div>
+            <h1>ROOM 00</h1>
+            <p>Sistema de IA - Conexión Establecida</p>
+        </div>
+        
+        <div class="chat-messages" id="chatMessages">
+            <div class="message bot">
+                <div class="message-content">
+                    > Sistema iniciado...<br>
+                    > Conexión establecida con ROOM 00<br>
+                    > IA Assistant online<br><br>
+                    ¿En qué puedo asistirte hoy?
+                </div>
+            </div>
+        </div>
+        
+        <div class="typing-indicator" id="typingIndicator">
+            <div class="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+        
+        <div class="chat-input">
+            <input type="text" id="messageInput" placeholder="Escribe tu consulta..." maxlength="500">
+            <button class="send-btn" id="sendBtn">ENVIAR</button>
+        </div>
+    </div>
+
+    <script>
+        const WEBHOOK_URL = 'https://ecoapo-ia-n8n-6fa896-31-97-91-221.traefik.me/webhook/chatbot';
+        
+        const chatMessages = document.getElementById('chatMessages');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const typingIndicator = document.getElementById('typingIndicator');
+        const statusIndicator = document.getElementById('statusIndicator');
+
+        let isConnected = true;
+
+        window.addEventListener('load', () => {
+            messageInput.focus();
+            checkConnection();
+            showSystemMessage();
+        });
+
+        function showSystemMessage() {
+            setTimeout(() => {
+                addMessage('> Todos los sistemas operativos', 'bot');
+            }, 1000);
+            
+            setTimeout(() => {
+                addMessage('> Esperando input del usuario...', 'bot');
+            }, 2000);
+        }
+
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        sendBtn.addEventListener('click', sendMessage);
+
+        async function checkConnection() {
+            try {
+                const response = await fetch(WEBHOOK_URL, { method: 'OPTIONS' });
+                updateConnectionStatus(true);
+            } catch (error) {
+                updateConnectionStatus(false);
+            }
+        }
+
+        function updateConnectionStatus(connected) {
+            isConnected = connected;
+            statusIndicator.style.background = connected ? '#00ff41' : '#ff4444';
+            statusIndicator.style.boxShadow = connected ? 
+                '0 0 10px rgba(0, 255, 65, 0.5)' : 
+                '0 0 10px rgba(255, 68, 68, 0.5)';
+        }
+
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            addMessage(message, 'user');
+            messageInput.value = '';
+            sendBtn.disabled = true;
+            messageInput.disabled = true;
+            showTyping();
+
+            try {
+                const response = await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        timestamp: new Date().toISOString(),
+                        sessionId: getSessionId(),
+                        room: 'ROOM_00'
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                hideTyping();
+                
+                let botResponse = data.response || data.message || data.text || 
+                                (typeof data === 'string' ? data : '> Procesamiento completado');
+                
+                addMessage(botResponse, 'bot');
+                updateConnectionStatus(true);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                hideTyping();
+                
+                let errorMessage = '> ERROR: Conexión perdida con ROOM 00\n> ';
+                if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                    errorMessage += 'Verificando protocolos de red...';
+                } else if (error.message.includes('404')) {
+                    errorMessage += 'Servicio no disponible';
+                } else {
+                    errorMessage += 'Reintentando conexión...';
+                }
+                
+                addMessage(errorMessage, 'bot', true);
+                updateConnectionStatus(false);
+                
+            } finally {
+                sendBtn.disabled = false;
+                messageInput.disabled = false;
+                messageInput.focus();
+            }
+        }
+
+        function addMessage(text, sender, isError = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${sender}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = `message-content ${isError ? 'error-message' : ''}`;
+            
+            if (sender === 'bot' && text.includes('\n')) {
+                contentDiv.innerHTML = text.replace(/\n/g, '<br>');
+            } else {
+                contentDiv.textContent = text;
+            }
+            
+            messageDiv.appendChild(contentDiv);
+            chatMessages.appendChild(messageDiv);
+            
+            chatMessages.scrollTo({
+                top: chatMessages.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+
+        function showTyping() {
+            typingIndicator.style.display = 'block';
+            chatMessages.appendChild(typingIndicator);
+            chatMessages.scrollTo({
+                top: chatMessages.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
+
+        function hideTyping() {
+            typingIndicator.style.display = 'none';
+            if (typingIndicator.parentNode) {
+                typingIndicator.parentNode.removeChild(typingIndicator);
+            }
+        }
+
+        function getSessionId() {
+            let sessionId = localStorage.getItem('room00_session_id');
+            if (!sessionId) {
+                sessionId = 'room00_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+                localStorage.setItem('room00_session_id', sessionId);
+            }
+            return sessionId;
+        }
+
+        setInterval(checkConnection, 30000);
+    </script>
+</body>
+</html>
